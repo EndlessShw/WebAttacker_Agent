@@ -1,0 +1,88 @@
+services:
+
+  # ─────────────────────────────────────────────
+  # Kali Linux 渗透测试容器
+  # ─────────────────────────────────────────────
+  kali-pentest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: kali-security-tools:latest
+    container_name: kali-pentest
+    hostname: kali-pentest
+
+    stdin_open: true
+    tty: true
+
+    # host 模式：直接访问宿主机网络（nmap/tcpdump 等工具需要）
+    # 如需隔离可改为 bridge，并在 Spring Boot 配置中使用容器 IP
+    network_mode: host
+
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    volumes:
+      # 扫描结果、脚本等持久化工作目录
+      - ./workspace:/root/workspace
+      - kali-tools-config:/root/.config
+      - kali-go-cache:/root/go
+
+    environment:
+      - TZ=Asia/Shanghai
+      - LANG=C.UTF-8
+
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Redis Stack（任务状态 + RAG VectorStore + SSE Pub/Sub）
+  # 必须使用 redis-stack-server 而非标准 redis 镜像：
+  # RedisVectorStore 依赖 RediSearch 模块（FT.* 命令），标准镜像不含该模块。
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: webattacker-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--save 60 1 --loglevel warning
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Elasticsearch（执行日志持久化 + 全文搜索）
+  # 暂不启用；如需开启，取消下方注释并同步修改 application.yaml：
+  #   app.log.storage=elasticsearch
+  #   spring.data.elasticsearch.repositories.enabled=true
+  #   spring.elasticsearch.uris=http://localhost:9200
+  # ─────────────────────────────────────────────
+  # elasticsearch:
+  #   image: elasticsearch:8.13.0
+  #   container_name: webattacker-es
+  #   environment:
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #     - ES_JAVA_OPTS=-Xms512m -Xmx512m
+  #     - TZ=Asia/Shanghai
+  #   ports:
+  #     - "9200:9200"
+  #   volumes:
+  #     - es-data:/usr/share/elasticsearch/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  kali-tools-config:
+    driver: local
+  kali-go-cache:
+    driver: local
+  redis-data:
+    driver: local
+  # es-data:       # 启用 elasticsearch 服务时取消注释
+  #   driver: local
